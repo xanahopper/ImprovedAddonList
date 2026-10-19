@@ -10,6 +10,7 @@ L["false"] = "否"
 L["ignore"] = "忽略"
 
 L["addon_set"] = "插件集"
+L["addon_category_uncategorized"] = "未分类"
 L["settings_tips"] = "设置"
 L["enable_all_tips"] = "启用所有插件"
 L["disable_all_tips"] = "禁用所有插件"

@@ -9,6 +9,7 @@ L["false"] = "No"
 L["ignore"] = "Ignore"
 
 L["addon_set"] = "Addon Set"
+L["addon_category_uncategorized"] = "Uncategorized"
 L["settings_tips"] = "Settings"
 L["enable_all_tips"] = "Enable All Addons"
 L["disable_all_tips"] = "Disable All Addons"

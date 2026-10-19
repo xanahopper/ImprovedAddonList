@@ -456,7 +456,12 @@ end
 
 -- 刷新插件详情
 function Addon:RefreshAddonDetailContainer()
-    self:ShowAddonDetail(self:CurrentFocusAddonName())
+    local addonName = self:CurrentFocusAddonName()
+    if addonName then
+        self:ShowAddonDetail(addonName)
+    else
+        self:GetAddonDetailContainer():Hide()
+    end
 end
 
 -- 显示插件详情

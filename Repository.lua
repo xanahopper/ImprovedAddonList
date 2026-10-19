@@ -142,6 +142,7 @@ function Addon:GetAddonInfoOrNil(query, addonInfo)
     addonInfo.Notes = notes
     addonInfo.Author = addonInfo.Author or C_AddOns.GetAddOnMetadata(query, "Author")
     addonInfo.Version = addonInfo.Version or C_AddOns.GetAddOnMetadata(query, "Version")
+    addonInfo.Category = C_AddOns.GetAddOnMetadata(query, "Category")
 
     -- 图标
     local iconTexture = C_AddOns.GetAddOnMetadata(query, "IconTexture")

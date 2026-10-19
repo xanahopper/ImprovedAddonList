@@ -1,6 +1,25 @@
 local addonName, Addon = ...
 local L = LibStub("AceLocale-3.0"):GetLocale(addonName)
 
+local uncategorizedKey = {}
+local categoryCollapsed = {}
+local categorySearchActive = false
+
+local function IsAddonNodeVisible(node)
+    if not node then
+        return false
+    end
+
+    local parent = node:GetParent()
+    while parent do
+        if parent:IsCollapsed() then
+            return false
+        end
+        parent = parent:GetParent()
+    end
+    return true
+end
+
 -- 插件列表项启用状态按钮函数集
 ImprovedAddonListItemEnableStatusButtonMixin = {}
 
@@ -63,7 +82,11 @@ end
 function ImprovedAddonListAddonCategoryMixin:OnClick()
     local node = self:GetElementData()
     node:ToggleCollapsed()
+    if not categorySearchActive then
+        categoryCollapsed[self:GetCategoryInfo().Key] = node:IsCollapsed() or nil
+    end
     self:SetCollapsed(node:IsCollapsed())
+    Addon:ClearHiddenAddonSelection()
 end
 
 -- 插件分组：设置折叠状态
@@ -231,6 +254,11 @@ end
 
 -- 选中变化
 local function AddonListNodeOnSelectionChanged(_, elementData, selected)
+    local addonInfo = elementData:GetData().AddonInfo
+    if not addonInfo then
+        return
+    end
+
     local button = Addon:GetAddonListScrollBox():FindFrame(elementData)
     
     if button then
@@ -238,8 +266,7 @@ local function AddonListNodeOnSelectionChanged(_, elementData, selected)
     end
 
     -- 显示插件详情
-    local addonInfo = elementData:GetData().AddonInfo
-    if addonInfo and selected then
+    if selected and addonInfo.Name ~= Addon:CurrentFocusAddonName() then
         Addon:ShowAddonDetail(addonInfo.Name)
     end
 end
@@ -508,30 +535,27 @@ end
 
 -- 滚动到选中项
 function Addon:ScrollToSelectedAddon()
+    self:ClearHiddenAddonSelection()
     local selectedPredicate = function(elementData)
-        return self:GetAddonListScrollBox().SelectionBehavior:IsElementDataSelected(elementData)
+        return elementData:GetData().AddonInfo and IsAddonNodeVisible(elementData)
+            and self:GetAddonListScrollBox().SelectionBehavior:IsElementDataSelected(elementData)
     end
     self:GetAddonListScrollBox():ScrollToElementDataByPredicate(selectedPredicate, ScrollBoxConstants.AlignCenter, 0, ScrollBoxConstants.NoScrollInterpolation)
+end
+
+function Addon:ClearHiddenAddonSelection()
+    local focusedName = self:CurrentFocusAddonName()
+    local node = focusedName and self.AddonListNodesByName and self.AddonListNodesByName[focusedName]
+    if focusedName and not IsAddonNodeVisible(node) then
+        self:GetAddonListScrollBox().SelectionBehavior:ClearSelections()
+        self.FocusAddonInfo = nil
+        self:GetAddonDetailContainer():Hide()
+    end
 end
 
 -- 更新插件列表
 function Addon:RefreshAddonListContainer()
     self:RefreshAddonList()
-
-    local currentFocusAddonName = self:CurrentFocusAddonName()
-    local selectPredicate = function(node)
-        local addonInfo = node:GetData().AddonInfo
-        if currentFocusAddonName then
-            -- 之前有选中插件，则刷新后再次选中
-            return addonInfo and addonInfo.Name == currentFocusAddonName
-        else
-            -- 否则默认选中第一个
-            return addonInfo
-        end
-    end
-
-    -- 选中并滚动到选中项
-    self:GetAddonListScrollBox().SelectionBehavior:SelectElementDataByPredicate(selectPredicate)
     self:ScrollToSelectedAddon()
 
     self:RefreshAddonDetailContainer()
@@ -558,31 +582,86 @@ end
 
 -- 刷新插件列表
 function Addon:RefreshAddonList()
-    self.AddonDataProvider = self.AddonDataProvider or CreateTreeDataProvider()
-    local addonDataProvider = self.AddonDataProvider
+    local currentFocusAddonName = self:CurrentFocusAddonName()
+    local addonDataProvider = CreateTreeDataProvider()
 
     local searchText = self:GetAddonListSearchBox():GetText()
     searchText = searchText and strtrim(searchText)
     searchText = searchText and searchText:lower()
 
-    addonDataProvider:Flush()
-
     local rootNode = addonDataProvider:GetRootNode()
     local addonInfos = self:GetAddonInfos()
     local shouldFilter = searchText and strlenutf8(searchText) > 0
-    
-    for index, addonInfo in ipairs(addonInfos) do
-        if shouldFilter then
-            local nickName = self:GetAddonRemark(addonInfo.Name) or ""
-            if addonInfo.Title:lower():match(searchText) or addonInfo.Name:lower():match(searchText) or nickName:lower():match(searchText) then
-                rootNode:Insert({ AddonInfo = addonInfo })
+    local categories, categoriesByKey = {}, {}
+    local nodesByName = {}
+
+    for _, addonInfo in ipairs(addonInfos) do
+        local category = addonInfo.Category
+        local hasCategory = type(category) == "string" and strtrim(category) ~= ""
+        local categoryKey = hasCategory and category or uncategorizedKey
+        local categoryName = hasCategory and category or L["addon_category_uncategorized"]
+        local nickName = self:GetAddonRemark(addonInfo.Name) or ""
+        local matches = not shouldFilter
+            or categoryName:lower():find(searchText, 1, true)
+            or addonInfo.Title:lower():find(searchText, 1, true)
+            or addonInfo.Name:lower():find(searchText, 1, true)
+            or nickName:lower():find(searchText, 1, true)
+
+        if matches then
+            local categoryInfo = categoriesByKey[categoryKey]
+            if not categoryInfo then
+                categoryInfo = { Key = categoryKey, Name = categoryName, Addons = {} }
+                categoriesByKey[categoryKey] = categoryInfo
+                table.insert(categories, categoryInfo)
             end
-        else
-            rootNode:Insert({ AddonInfo = addonInfo })
+            table.insert(categoryInfo.Addons, addonInfo)
         end
     end
 
-    self:GetAddonListScrollBox():SetDataProvider(addonDataProvider, ScrollBoxConstants.RetainScrollPosition)
+    table.sort(categories, function(left, right)
+        if left.Key == uncategorizedKey or right.Key == uncategorizedKey then
+            return right.Key == uncategorizedKey and left.Key ~= uncategorizedKey
+        end
+        local leftName, rightName = left.Name:lower(), right.Name:lower()
+        if leftName == rightName then
+            return left.Name < right.Name
+        end
+        return leftName < rightName
+    end)
+
+    for _, categoryInfo in ipairs(categories) do
+        local categoryNode = rootNode:Insert({ CategoryInfo = categoryInfo })
+        categoryNode:SetCollapsed(not shouldFilter and categoryCollapsed[categoryInfo.Key] or false)
+        for _, addonInfo in ipairs(categoryInfo.Addons) do
+            nodesByName[addonInfo.Name] = categoryNode:Insert({ AddonInfo = addonInfo })
+        end
+    end
+
+    local scrollBox = self:GetAddonListScrollBox()
+    scrollBox.SelectionBehavior:ClearSelections()
+    self.AddonDataProvider = addonDataProvider
+    self.AddonListNodesByName = nodesByName
+    categorySearchActive = shouldFilter and true or false
+    scrollBox:SetDataProvider(addonDataProvider, ScrollBoxConstants.RetainScrollPosition)
+
+    local selectedNode = currentFocusAddonName and nodesByName[currentFocusAddonName]
+    if not self.AddonListSelectionInitialized then
+        for _, categoryInfo in ipairs(categories) do
+            local node = nodesByName[categoryInfo.Addons[1].Name]
+            if IsAddonNodeVisible(node) then
+                selectedNode = node
+                break
+            end
+        end
+        self.AddonListSelectionInitialized = true
+    end
+
+    if IsAddonNodeVisible(selectedNode) then
+        scrollBox.SelectionBehavior:SelectElementData(selectedNode)
+    else
+        self.FocusAddonInfo = nil
+        self:GetAddonDetailContainer():Hide()
+    end
 end
 
 function Addon:GetAddonListScrollBox()

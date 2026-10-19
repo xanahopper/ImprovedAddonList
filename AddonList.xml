@@ -82,6 +82,7 @@
 					<Size y="10"/>
 					<Anchors>
 						<Anchor point="LEFT" x="10" y="2"/>
+						<Anchor point="RIGHT" x="-30" y="2"/>
 					</Anchors>
 				</FontString>
 			</Layer>

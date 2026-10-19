@@ -20,6 +20,24 @@
     <Button name="ImprovedAddonListAddonItemTemplate" mixin="ImprovedAddonListAddonItemMixin" virtual="true">
 		<Size y="20"/>
 		<Frames>
+			<Button parentKey="CollapseButton" mixin="ImprovedAddonListAddonGroupCollapseButtonMixin" hidden="true">
+				<Size x="16" y="16"/>
+				<Anchors>
+					<Anchor point="LEFT" x="4"/>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<Texture parentKey="CollapseIcon">
+							<Anchors>
+								<Anchor point="CENTER"/>
+							</Anchors>
+						</Texture>
+					</Layer>
+				</Layers>
+				<Scripts>
+					<OnClick method="OnClick"/>
+				</Scripts>
+			</Button>
 			<Button parentKey="EnableStatus" inherits="ImprovedAddonListAddonItemEnableStatusButtonTemplate">
 				<HitRectInsets left="-6" right="-6" top="-6" bottom="-6"/>
 				<Size x="15" y="15"/>

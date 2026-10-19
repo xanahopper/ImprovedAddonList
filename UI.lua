@@ -170,7 +170,7 @@ function Addon:GetOrCreateUI()
     self.UI = UI
 
     -- 基本样式
-    UI:SetSize(630, 600)
+    UI:SetSize(740, 600)
     UI:ClearAllPoints()
     UI:SetPoint("CENTER")
     UI:SetTitle(ADDON_LIST)
@@ -231,14 +231,14 @@ function Addon:GetOrCreateUI()
     -- 创建插件列表页
     local AddonListContainer = self:CreateContainer(UI)
     UI.AddonListContainer = AddonListContainer
-    AddonListContainer:SetWidth(300)
+    AddonListContainer:SetWidth(360)
     AddonListContainer:SetPoint("BOTTOMLEFT", 10, 40)
     AddonListContainer:SetPoint("TOPLEFT", 10, -60)
 
     -- 创建插件详情页
     local AddonDetailContainer = self:CreateContainer(UI)
     UI.AddonDetailContainer = AddonDetailContainer
-    AddonDetailContainer:SetWidth(300)
+    AddonDetailContainer:SetWidth(350)
     AddonDetailContainer:SetPoint("TOPLEFT", AddonListContainer, "TOPRIGHT", 10, 0)
     AddonDetailContainer:SetPoint("BOTTOMLEFT", AddonListContainer, "BOTTOMRIGHT", 10, 0)
 

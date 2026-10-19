@@ -3,7 +3,55 @@ local L = LibStub("AceLocale-3.0"):GetLocale(addonName)
 
 local uncategorizedKey = {}
 local categoryCollapsed = {}
+local groupCollapsed = {}
 local categorySearchActive = false
+
+local function BuildAddonHierarchy(addonInfos)
+    local entries, entriesByName = {}, {}
+    for _, addonInfo in ipairs(addonInfos) do
+        local entry = { AddonInfo = addonInfo, Children = {} }
+        table.insert(entries, entry)
+        entriesByName[addonInfo.Name] = entry
+    end
+
+    for _, entry in ipairs(entries) do
+        local group = entry.AddonInfo.Group
+        if type(group) == "string" and strtrim(group) ~= "" then
+            local parent = entriesByName[group]
+            if parent ~= entry then
+                entry.Parent = parent
+            end
+        end
+    end
+
+    local resolved = {}
+    for _, entry in ipairs(entries) do
+        local path, positions = {}, {}
+        local current = entry
+        while current and not resolved[current] do
+            local cycleStart = positions[current]
+            if cycleStart then
+                -- Invalid metadata must not make addons unreachable or trap tree traversal.
+                for index = cycleStart, #path do
+                    path[index].Parent = nil
+                end
+                break
+            end
+            table.insert(path, current)
+            positions[current] = #path
+            current = current.Parent
+        end
+        for _, visited in ipairs(path) do
+            resolved[visited] = true
+        end
+    end
+
+    local roots = {}
+    for _, entry in ipairs(entries) do
+        table.insert(entry.Parent and entry.Parent.Children or roots, entry)
+    end
+    return roots
+end
 
 local function IsAddonNodeVisible(node)
     if not node then
@@ -96,12 +144,35 @@ function ImprovedAddonListAddonCategoryMixin:SetCollapsed(collapsed)
 	self.CollapseIconAlphaAdd:SetAtlas(atlas, TextureKitConstants.UseAtlasSize)
 end
 
+ImprovedAddonListAddonGroupCollapseButtonMixin = {}
+
+function ImprovedAddonListAddonGroupCollapseButtonMixin:Update()
+    local node = self:GetParent():GetElementData()
+    self:SetShown(#node:GetNodes() > 0)
+    local atlas = node:IsCollapsed() and "Professions-recipe-header-expand" or "Professions-recipe-header-collapse"
+    self.CollapseIcon:SetAtlas(atlas, TextureKitConstants.UseAtlasSize)
+end
+
+function ImprovedAddonListAddonGroupCollapseButtonMixin:OnClick()
+    local node = self:GetParent():GetElementData()
+    node:ToggleCollapsed()
+    if not categorySearchActive then
+        groupCollapsed[node:GetData().AddonInfo.Name] = node:IsCollapsed() or nil
+    end
+    self:Update()
+    Addon:ClearHiddenAddonSelection()
+end
+
 -- 插件列表项函数集
 ImprovedAddonListAddonItemMixin = {}
 
 -- 插件列表项：更新
 function ImprovedAddonListAddonItemMixin:Update()
     local addonInfo = self:GetAddonInfo()
+    self.CollapseButton:Update()
+    self.Label:ClearAllPoints()
+    self.Label:SetPoint("LEFT", self, "LEFT", 23, 0)
+    self.Label:SetPoint("RIGHT", self.EnableStatus, "LEFT", -15, 0)
 
     local iconText = Addon:CreateAddonIconText(addonInfo.IconText)
 
@@ -595,26 +666,41 @@ function Addon:RefreshAddonList()
     local categories, categoriesByKey = {}, {}
     local nodesByName = {}
 
-    for _, addonInfo in ipairs(addonInfos) do
-        local category = addonInfo.Category
+    local function MatchesAddon(addonInfo)
+        local nickName = self:GetAddonRemark(addonInfo.Name) or ""
+        return addonInfo.Title:lower():find(searchText, 1, true)
+            or addonInfo.Name:lower():find(searchText, 1, true)
+            or nickName:lower():find(searchText, 1, true)
+            or type(addonInfo.Category) == "string" and addonInfo.Category:lower():find(searchText, 1, true)
+    end
+
+    local function FilterEntry(entry, ancestorMatches)
+        local matches = ancestorMatches or MatchesAddon(entry.AddonInfo)
+        local visible = matches
+        for _, child in ipairs(entry.Children) do
+            if FilterEntry(child, matches) then
+                visible = true
+            end
+        end
+        entry.Visible = visible
+        return visible
+    end
+
+    for _, entry in ipairs(BuildAddonHierarchy(addonInfos)) do
+        local category = entry.AddonInfo.Category
         local hasCategory = type(category) == "string" and strtrim(category) ~= ""
         local categoryKey = hasCategory and category or uncategorizedKey
         local categoryName = hasCategory and category or L["addon_category_uncategorized"]
-        local nickName = self:GetAddonRemark(addonInfo.Name) or ""
-        local matches = not shouldFilter
-            or categoryName:lower():find(searchText, 1, true)
-            or addonInfo.Title:lower():find(searchText, 1, true)
-            or addonInfo.Name:lower():find(searchText, 1, true)
-            or nickName:lower():find(searchText, 1, true)
+        local categoryMatches = not shouldFilter or categoryName:lower():find(searchText, 1, true)
 
-        if matches then
+        if FilterEntry(entry, categoryMatches) then
             local categoryInfo = categoriesByKey[categoryKey]
             if not categoryInfo then
-                categoryInfo = { Key = categoryKey, Name = categoryName, Addons = {} }
+                categoryInfo = { Key = categoryKey, Name = categoryName, Roots = {} }
                 categoriesByKey[categoryKey] = categoryInfo
                 table.insert(categories, categoryInfo)
             end
-            table.insert(categoryInfo.Addons, addonInfo)
+            table.insert(categoryInfo.Roots, entry)
         end
     end
 
@@ -629,11 +715,23 @@ function Addon:RefreshAddonList()
         return leftName < rightName
     end)
 
+    local function InsertEntry(parentNode, entry)
+        local addonInfo = entry.AddonInfo
+        local node = parentNode:Insert({ AddonInfo = addonInfo })
+        nodesByName[addonInfo.Name] = node
+        node:SetCollapsed(not shouldFilter and groupCollapsed[addonInfo.Name] or false)
+        for _, child in ipairs(entry.Children) do
+            if child.Visible then
+                InsertEntry(node, child)
+            end
+        end
+    end
+
     for _, categoryInfo in ipairs(categories) do
         local categoryNode = rootNode:Insert({ CategoryInfo = categoryInfo })
         categoryNode:SetCollapsed(not shouldFilter and categoryCollapsed[categoryInfo.Key] or false)
-        for _, addonInfo in ipairs(categoryInfo.Addons) do
-            nodesByName[addonInfo.Name] = categoryNode:Insert({ AddonInfo = addonInfo })
+        for _, entry in ipairs(categoryInfo.Roots) do
+            InsertEntry(categoryNode, entry)
         end
     end
 
@@ -647,7 +745,7 @@ function Addon:RefreshAddonList()
     local selectedNode = currentFocusAddonName and nodesByName[currentFocusAddonName]
     if not self.AddonListSelectionInitialized then
         for _, categoryInfo in ipairs(categories) do
-            local node = nodesByName[categoryInfo.Addons[1].Name]
+            local node = nodesByName[categoryInfo.Roots[1].AddonInfo.Name]
             if IsAddonNodeVisible(node) then
                 selectedNode = node
                 break
